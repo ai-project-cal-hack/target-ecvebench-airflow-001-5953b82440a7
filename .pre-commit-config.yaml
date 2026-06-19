@@ -31,7 +31,7 @@ repos:
       - id: check-hooks-apply
         name: Check if all hooks apply to the repository
   - repo: https://github.com/thlorenz/doctoc.git
-    rev: d77825acdc8ca194308680fa4f8385ae5bb61cb4  # frozen: v2.4.1
+    rev: 59dcae910a6ad4bbe8711275b854e3cd5c30f08b  # frozen: v2.5.0
     hooks:
       - id: doctoc
         name: Add TOC for Markdown and RST files
@@ -562,7 +562,7 @@ repos:
         types_or: [python, pyi]
         args: [--fix]
         require_serial: true
-        additional_dependencies: ['ruff==0.15.16']
+        additional_dependencies: ['ruff==0.15.17']
         exclude: ^airflow-core/tests/unit/dags/test_imports\.py$|^performance/tests/test_.*\.py$
       - id: ruff-format
         name: Run 'ruff format'
