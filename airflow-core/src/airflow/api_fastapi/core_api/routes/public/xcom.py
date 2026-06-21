@@ -127,7 +127,10 @@ def get_xcom_entry(
         try:
             item.value = stringify_xcom(parsed_value)
         except StringifyNotSupportedError:
-            item.value = XComModel.deserialize_value(result)
+            # Return the raw parsed value as a string instead of calling
+            # XComModel.deserialize_value(), which uses XComDecoder and would
+            # instantiate arbitrary classes from crafted XCom data (GHSA-6ffj-2wg2-w45j).
+            item.value = str(parsed_value)
     else:
         # For native format, return the raw serialized value from the database
         # This preserves the JSON string format that the API expects
