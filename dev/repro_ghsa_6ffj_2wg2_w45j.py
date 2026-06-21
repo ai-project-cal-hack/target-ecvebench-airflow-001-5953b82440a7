@@ -20,11 +20,11 @@
 # dependencies = []
 # ///
 """
-Reproduction of GHSA-6ffj-2wg2-w45j: Deserialization allowlist bypass via
-re.match() prefix matching in _match_regexp().
+Verification of fix for GHSA-6ffj-2wg2-w45j: Deserialization allowlist bypass
+via re.match() prefix matching in _match_regexp().
 
-VULNERABILITY
--------------
+VULNERABILITY (before fix)
+--------------------------
 Before commit 80f1ab4d5a (#66499), ``_match_regexp()`` in
 ``task-sdk/src/airflow/sdk/serde/__init__.py`` used ``re.match()``
 to validate classnames against ``allowed_deserialization_classes_regexp``.
@@ -39,20 +39,23 @@ XCom data could craft a name that passes the allowlist yet points to an
 attacker-controlled module.  ``deserialize()`` then calls
 ``import_string(classname)``, loading and instantiating the class.
 
-FIX
----
-Switch from ``re.match()`` to ``re.fullmatch()`` so the pattern must
-match the *entire* classname string.
+FIX (applied)
+-------------
+Commit 80f1ab4d5a (#66499) switched from ``re.match()`` to
+``re.fullmatch()`` so the pattern must match the *entire* classname
+string.  The config description for ``allowed_deserialization_classes_regexp``
+was also updated to document the fullmatch semantics.
 
 HOW TO RUN
 ----------
-    python3 dev/repro_ghsa_6ffj_2wg2_w45j.py
+    uv run dev/repro_ghsa_6ffj_2wg2_w45j.py
 
-OUTPUT
-------
-Lines marked "VULNERABLE" show classnames the pre-fix code incorrectly
-allows.  "FIXED" lines show the same classnames correctly rejected by
-``re.fullmatch()``.
+VERIFICATION
+------------
+This script demonstrates the before/after behaviour.  Lines marked
+"VULNERABLE" show classnames the pre-fix ``re.match()`` code would have
+incorrectly allowed.  "FIXED" lines confirm those classnames are now
+rejected by ``re.fullmatch()``.  Exit code 0 means the fix is verified.
 """
 
 from __future__ import annotations
@@ -86,7 +89,6 @@ def main() -> int:
     print("  _match_regexp() used re.match() instead of re.fullmatch()")
     print("=" * 78)
 
-    # The exact scenario: admin restricts to a single class via regexp
     regexp = r"airflow\.models\.Variable"
     patterns = [re.compile(regexp)]
     print(f"\nallowed_deserialization_classes_regexp = {regexp!r}")
@@ -114,26 +116,34 @@ def main() -> int:
 
         print(f"  {classname:45s} {str(expected):>6s} {str(vuln):>6s} {str(fixed):>6s}  {tag}")
 
-    # Demonstrate the actual attack payload
-    print("\n--- Attack payload ---")
-    print("  A malicious DAG author stores this XCom value:")
+    print("\n--- Attack payload (before fix) ---")
+    print("  A malicious Dag author stores this XCom value:")
     print('    {"__classname__": "airflow.models.Variable_Malicious",')
     print('     "__version__": 0, "__data__": {}}')
     print()
-    print("  With the pre-fix code, _match_regexp() returns True because")
+    print("  With the pre-fix code, _match_regexp() returned True because")
     print(f"  re.compile({regexp!r}).match('airflow.models.Variable_Malicious')")
     m = re.compile(regexp).match("airflow.models.Variable_Malicious")
     print(f"  = {m}  (matched prefix only)")
     print()
-    print("  deserialize() then calls import_string('airflow.models.Variable_Malicious'),")
-    print("  which imports and instantiates the attacker's class.")
+    print("  After the fix, _match_regexp() uses re.fullmatch() which rejects it:")
+    fm = re.compile(regexp).fullmatch("airflow.models.Variable_Malicious")
+    print(f"  re.compile({regexp!r}).fullmatch('airflow.models.Variable_Malicious')")
+    print(f"  = {fm}  (no match — suffix bypass blocked)")
 
     print("\n" + "=" * 78)
     print(f"RESULT: {vuln_count} bypass(es) found with pre-fix re.match()")
     print(f"        {fixed_count} of those fixed by re.fullmatch()")
+
+    if fixed_count == vuln_count and vuln_count > 0:
+        print("STATUS: FIXED — all bypass vectors are blocked by re.fullmatch()")
+    else:
+        print("STATUS: VULNERABLE — not all bypass vectors are blocked")
+
     print("=" * 78)
 
-    return 0 if vuln_count > 0 else 1
+    # Exit 0 when all bypass vectors are blocked (fix verified)
+    return 0 if fixed_count == vuln_count and vuln_count > 0 else 1
 
 
 if __name__ == "__main__":

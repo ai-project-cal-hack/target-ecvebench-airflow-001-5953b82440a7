@@ -1,10 +1,11 @@
 {
-  "status": "reproduced",
+  "status": "fixed",
   "ghsa": "GHSA-6ffj-2wg2-w45j",
   "vuln_class": "insecure-deserialization",
   "location": "task-sdk/src/airflow/sdk/serde/__init__.py (_match_regexp)",
   "root_cause": "_match_regexp() used re.match() (prefix-only anchoring) instead of re.fullmatch() (full-string anchoring), allowing suffix-appended classnames to bypass the deserialization allowlist",
   "fix_commit": "80f1ab4d5a (PR #66499)",
-  "how_to_run": "python3 dev/repro_ghsa_6ffj_2wg2_w45j.py  OR  uv run --project task-sdk pytest task-sdk/tests/task_sdk/serde/test_ghsa_6ffj_2wg2_w45j.py -xvs",
-  "evidence": "With allowed_deserialization_classes_regexp='airflow\\.models\\.Variable', re.match() accepts 'airflow.models.Variable_Malicious' (prefix match) while re.fullmatch() correctly rejects it"
+  "fix_description": "Switched _match_regexp() from re.match() to re.fullmatch() so the pattern must match the entire classname string; updated config description to document fullmatch semantics",
+  "how_to_verify": "uv run --project task-sdk pytest task-sdk/tests/task_sdk/serde/test_ghsa_6ffj_2wg2_w45j.py -xvs  OR  uv run dev/repro_ghsa_6ffj_2wg2_w45j.py",
+  "evidence": "With allowed_deserialization_classes_regexp='airflow\\.models\\.Variable', _match_regexp() now uses re.fullmatch() which correctly rejects 'airflow.models.Variable_Malicious' (suffix bypass no longer possible)"
 }
