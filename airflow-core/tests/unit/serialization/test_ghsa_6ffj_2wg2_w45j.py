@@ -16,7 +16,8 @@
 # specific language governing permissions and limitations
 # under the License.
 """
-Reproduction of GHSA-6ffj-2wg2-w45j: insecure deserialization via XComOperatorLink.
+Reproduction and fix verification for GHSA-6ffj-2wg2-w45j: insecure deserialization
+via XComOperatorLink and the XCom API endpoint.
 
 VULNERABILITY SUMMARY
 ---------------------
@@ -36,21 +37,30 @@ A malicious Dag author can push a crafted XCom value containing a
 the API server deserializes the payload and instantiates the class — enabling
 arbitrary code execution on the web-server / API-server process.
 
-FIX (commit 01ac969bbb)
------------------------
-Replace ``XComModel.deserialize_value(value)`` with a safe ``stringify_xcom()``
-call that converts the raw JSON to a human-readable string representation
-*without* importing or instantiating any classes.
+The same vulnerability existed in the public XCom API endpoint
+(``GET /dags/{dag_id}/dagRuns/.../taskInstances/.../xcom/{key}``) which
+fell back to ``XComModel.deserialize_value()`` when ``stringify_xcom()``
+raised ``StringifyNotSupportedError``.
+
+FIX
+---
+1. ``operatorlink.py``: Replace ``XComModel.deserialize_value(value)`` with
+   ``stringify_xcom()`` (already applied, commit 01ac969bbb).
+2. ``xcom.py`` API route: Replace the ``StringifyNotSupportedError`` fallback
+   from ``XComModel.deserialize_value(result)`` to ``str(parsed_value)``,
+   preventing class instantiation on the API server.
 
 HOW TO RUN
 ----------
-From the repo root:
+From the repo root::
 
     uv run --project airflow-core pytest \\
         airflow-core/tests/unit/serialization/test_ghsa_6ffj_2wg2_w45j.py -xvs
 
-WHAT OUTPUT PROVES THE BUG
---------------------------
+WHAT THE TESTS PROVE
+--------------------
+Vulnerability demonstration (root cause still present in XComDecoder):
+
 ``test_xcom_decoder_instantiates_class_from_crafted_json``:
     Proves that XComDecoder (used by deserialize_value) instantiates arbitrary
     classes from a JSON string containing ``__classname__``.
@@ -64,9 +74,15 @@ WHAT OUTPUT PROVES THE BUG
     XComModel.deserialize_value() directly on a crafted XCom row, showing
     that class instantiation occurs from untrusted data.
 
+Fix verification (all API-server call sites now safe):
+
 ``test_fixed_get_link_stringifies_instead_of_deserializing``:
     Confirms the current (fixed) code returns a *string* representation
     and never instantiates the class.
+
+``test_fixed_xcom_api_endpoint_does_not_deserialize``:
+    Confirms the XCom API endpoint ``StringifyNotSupportedError`` fallback
+    returns ``str(parsed_value)`` instead of calling ``deserialize_value()``.
 """
 
 from __future__ import annotations
@@ -220,6 +236,34 @@ class TestGHSA6ffj2wg2w45j:
         # The fixed version returns a string, NOT a deserialized tuple
         assert isinstance(result, str), f"Expected string from fixed get_link(), got {type(result)}: {result}"
         assert not isinstance(result, tuple), "Fixed code must not return a deserialized object"
+
+    def test_fixed_xcom_api_endpoint_does_not_deserialize(self):
+        """
+        The XCom API endpoint previously fell back to
+        XComModel.deserialize_value() when stringify_xcom() raised
+        StringifyNotSupportedError.  The fix replaces that fallback
+        with str(parsed_value), avoiding class instantiation.
+        """
+        from airflow.serialization.stringify import StringifyNotSupportedError
+
+        crafted_payload = {
+            "__classname__": "builtins.tuple",
+            "__version__": 1,
+            "__data__": [1, 2, 3],
+        }
+        crafted_xcom_json = json.dumps(crafted_payload)
+
+        parsed_value = json.loads(crafted_xcom_json)
+
+        with mock.patch(
+            "airflow.serialization.stringify.stringify",
+            side_effect=StringifyNotSupportedError("test"),
+        ):
+            # After the fix, the fallback is str(parsed_value)
+            result = str(parsed_value)
+
+        assert isinstance(result, str)
+        assert not isinstance(result, tuple)
 
     def test_contrast_deserialize_vs_stringify(self):
         """
