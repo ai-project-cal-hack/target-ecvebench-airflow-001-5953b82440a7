@@ -24,6 +24,10 @@ like ``airflow\\.models\\.Variable`` therefore also admitted classnames
 such as ``airflow.models.Variable_Malicious``.
 
 The fix switched to ``re.fullmatch()`` so the entire classname must match.
+
+These tests verify the fix is in place: ``_match_regexp()`` must reject
+classnames that share an allowed pattern as a prefix but append extra
+characters.
 """
 
 from __future__ import annotations
